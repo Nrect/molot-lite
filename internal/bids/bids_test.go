@@ -21,6 +21,7 @@ import (
 
 	"molotlite/internal/bids"
 	"molotlite/internal/lots"
+	"molotlite/internal/notify"
 	"molotlite/internal/platform/auth"
 	"molotlite/internal/testutil"
 	"molotlite/internal/users"
@@ -37,7 +38,9 @@ func newTestApp(t *testing.T) (*httptest.Server, *pgxpool.Pool) {
 	lotsService := lots.NewService(pool, usersService)
 	usersHandler := users.NewHandler(usersService)
 	lotsHandler := lots.NewHandler(lotsService)
-	bidsHandler := bids.NewHandler(bids.NewService(pool, lotsService))
+	// Notifications run disabled (empty credentials): the tests assert
+	// bidding behaviour, not Telegram delivery.
+	bidsHandler := bids.NewHandler(bids.NewService(pool, lotsService, notify.NewService("", "")))
 
 	r := chi.NewRouter()
 	r.Route("/api", func(api chi.Router) {

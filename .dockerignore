@@ -1,0 +1,17 @@
+# Keep the build context to code only. Feature migrations (*.sql under
+# internal/*/migrations) are embedded into the binaries — never list them here.
+.git
+.github
+docs
+deploy
+docker-compose.yml
+docker-compose.prod.yml
+Makefile
+.env
+.env.example
+.golangci.yml
+api.http
+bin/
+*.exe
+coverage.out
+**/*.md

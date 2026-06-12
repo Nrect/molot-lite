@@ -8,7 +8,6 @@ package bids
 
 import (
 	"context"
-	"log/slog"
 	"time"
 
 	"github.com/google/uuid"
@@ -16,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"molotlite/internal/lots"
+	"molotlite/internal/notify"
 	"molotlite/internal/platform/errs"
 	"molotlite/internal/platform/postgres"
 )
@@ -27,12 +27,13 @@ const (
 
 // Service implements the bids feature as transaction scripts (rule 3).
 type Service struct {
-	pool *pgxpool.Pool
-	lots *lots.Service
+	pool   *pgxpool.Pool
+	lots   *lots.Service
+	notify *notify.Service
 }
 
-func NewService(pool *pgxpool.Pool, lotsSvc *lots.Service) *Service {
-	return &Service{pool: pool, lots: lotsSvc}
+func NewService(pool *pgxpool.Pool, lotsSvc *lots.Service, notifySvc *notify.Service) *Service {
+	return &Service{pool: pool, lots: lotsSvc, notify: notifySvc}
 }
 
 // Bid is a bid as clients see it.
@@ -84,14 +85,16 @@ func (s *Service) Place(ctx context.Context, lotID, bidderID uuid.UUID, amountMi
 	if outbid != uuid.Nil && outbid != bidderID {
 		// Notify the outbid user. In Molot this is an event published
 		// through the outbox (maturation trigger #2: a second consumer
-		// of the feature's data); for the MVP the log line is the whole
-		// notification, emitted only after the transaction committed.
-		slog.InfoContext(ctx, "outbid notification",
-			slog.String("lot_id", lotID.String()),
-			slog.String("lot_title", lotTitle),
-			slog.String("outbid_user_id", outbid.String()),
-			slog.Int64("new_amount_minor", amountMinor),
-		)
+		// of the feature's data); for the MVP it is a direct best-effort
+		// call into the notify feature (rule 2), made only after the
+		// transaction committed so a notification can never precede —
+		// or outlive — a rolled-back bid.
+		s.notify.Outbid(ctx, notify.OutbidEvent{
+			LotID:          lotID,
+			LotTitle:       lotTitle,
+			OutbidUserID:   outbid,
+			NewAmountMinor: amountMinor,
+		})
 	}
 	return bid, nil
 }

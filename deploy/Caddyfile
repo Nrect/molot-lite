@@ -1,0 +1,6 @@
+# Replace example.com with your domain (DNS A-record must already point
+# at this VPS). Caddy then obtains and renews the TLS certificate by
+# itself — no certbot, no cron.
+example.com {
+	reverse_proxy app:8080
+}

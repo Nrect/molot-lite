@@ -15,6 +15,7 @@ import (
 
 	"molotlite/internal/bids"
 	"molotlite/internal/lots"
+	"molotlite/internal/notify"
 	"molotlite/internal/platform/auth"
 	"molotlite/internal/platform/config"
 	"molotlite/internal/platform/logs"
@@ -58,7 +59,12 @@ func run() error {
 	}
 
 	r := server.New(logger)
-	server.RegisterHealth(r, logger, []server.ReadinessProbe{
+	// CORS sits on the root router so preflights are answered before
+	// routing; with no configured origins it stays off entirely.
+	if len(cfg.CORSOrigins) > 0 {
+		r.Use(server.CORS(cfg.CORSOrigins))
+	}
+	health := server.RegisterHealth(r, logger, []server.ReadinessProbe{
 		{Name: "postgres", Check: pool.Ping},
 	})
 
@@ -67,18 +73,27 @@ func run() error {
 	// both are rule-2 service-function calls, never foreign tables.
 	usersService := users.NewService(pool, cfg.JWTSecret, cfg.BcryptCost)
 	lotsService := lots.NewService(pool, usersService)
-	bidsService := bids.NewService(pool, lotsService)
+	notifyService := notify.NewService(cfg.TelegramBotToken, cfg.TelegramChatID)
+	bidsService := bids.NewService(pool, lotsService, notifyService)
 
 	usersHandler := users.NewHandler(usersService)
 	lotsHandler := lots.NewHandler(lotsService)
 	bidsHandler := bids.NewHandler(bidsService)
 
 	r.Route("/api", func(api chi.Router) {
-		// Public: signup, login, browsing lots and bid history.
+		// Public browsing: lots and bid history, no token, no limiter.
 		api.Group(func(public chi.Router) {
-			usersHandler.RegisterPublic(public)
 			lotsHandler.RegisterPublic(public)
 			bidsHandler.RegisterPublic(public)
+		})
+		// Auth endpoints (signup, login) are the bot magnets, so they
+		// sit behind the per-IP rate limiter. RATE_LIMIT_RPS=0 turns it
+		// off.
+		api.Group(func(public chi.Router) {
+			if cfg.RateLimitRPS > 0 {
+				public.Use(server.NewRateLimiter(cfg.RateLimitRPS, cfg.RateLimitBurst).Middleware)
+			}
+			usersHandler.RegisterPublic(public)
 		})
 		// Protected: everything acting on behalf of a user.
 		api.Group(func(protected chi.Router) {
@@ -91,5 +106,7 @@ func run() error {
 
 	addr := fmt.Sprintf(":%d", cfg.HTTPPort)
 	logger.Info("server starting", slog.String("addr", addr))
-	return server.Run(ctx, addr, r)
+	// health.NotReady runs first on shutdown: readyz turns 503, the
+	// load balancer drains the instance, then the listener closes.
+	return server.Run(ctx, addr, r, health.NotReady)
 }

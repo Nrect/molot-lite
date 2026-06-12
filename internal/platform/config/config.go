@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 
 	"golang.org/x/crypto/bcrypt"
 )
@@ -31,6 +32,19 @@ type Config struct {
 	JWTSecret   string    // JWT_SECRET (required, at least 32 bytes)
 	LogFormat   LogFormat // LOG_FORMAT (default json)
 	BcryptCost  int       // BCRYPT_COST (default 10, bcrypt.MinCost..bcrypt.MaxCost)
+
+	// CORSOrigins is the cross-origin allowlist (CORS_ORIGINS,
+	// comma-separated). Empty keeps CORS disabled — the safe default:
+	// no origin is ever reflected unless explicitly listed.
+	CORSOrigins []string
+
+	RateLimitRPS   int // RATE_LIMIT_RPS (default 2, 0 disables the limiter)
+	RateLimitBurst int // RATE_LIMIT_BURST (default 5, at least 1)
+
+	// Telegram credentials for outbid notifications; optional, but set
+	// both or neither. Empty means notifications fall back to the log.
+	TelegramBotToken string // TELEGRAM_BOT_TOKEN
+	TelegramChatID   string // TELEGRAM_CHAT_ID
 }
 
 // Load reads the configuration from the process environment.
@@ -48,10 +62,21 @@ func load(lookup func(string) (string, bool)) (Config, error) {
 		JWTSecret:   l.required("JWT_SECRET"),
 		LogFormat:   LogFormat(l.enum("LOG_FORMAT", string(LogFormatJSON), string(LogFormatJSON), string(LogFormatText))),
 		BcryptCost:  l.intInRange("BCRYPT_COST", bcrypt.DefaultCost, bcrypt.MinCost, bcrypt.MaxCost),
+
+		CORSOrigins:    l.csv("CORS_ORIGINS"),
+		RateLimitRPS:   l.intInRange("RATE_LIMIT_RPS", 2, 0, 10_000),
+		RateLimitBurst: l.intInRange("RATE_LIMIT_BURST", 5, 1, 10_000),
+
+		TelegramBotToken: l.optional("TELEGRAM_BOT_TOKEN"),
+		TelegramChatID:   l.optional("TELEGRAM_CHAT_ID"),
 	}
 
 	if cfg.JWTSecret != "" && len(cfg.JWTSecret) < minJWTSecretBytes {
 		l.fail("JWT_SECRET", fmt.Sprintf("must be at least %d bytes, got %d", minJWTSecretBytes, len(cfg.JWTSecret)))
+	}
+
+	if (cfg.TelegramBotToken == "") != (cfg.TelegramChatID == "") {
+		l.fail("TELEGRAM_BOT_TOKEN/TELEGRAM_CHAT_ID", "must be set together: both or neither")
 	}
 
 	if len(l.errs) > 0 {
@@ -68,6 +93,27 @@ type loader struct {
 
 func (l *loader) fail(key, reason string) {
 	l.errs = append(l.errs, fmt.Errorf("%s: %s", key, reason))
+}
+
+func (l *loader) optional(key string) string {
+	v, _ := l.lookup(key)
+	return v
+}
+
+// csv splits a comma-separated value into trimmed, non-empty items;
+// an unset or empty variable yields nil.
+func (l *loader) csv(key string) []string {
+	raw, ok := l.lookup(key)
+	if !ok || raw == "" {
+		return nil
+	}
+	var items []string
+	for _, part := range strings.Split(raw, ",") {
+		if item := strings.TrimSpace(part); item != "" {
+			items = append(items, item)
+		}
+	}
+	return items
 }
 
 func (l *loader) required(key string) string {

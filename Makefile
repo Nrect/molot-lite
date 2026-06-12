@@ -1,6 +1,6 @@
 # Local development entry points. `make up run` brings the whole stack up.
 
-.PHONY: run test test-integration lint up down
+.PHONY: run test test-integration lint up down up-app seed docker-build
 
 run: ## Start the server (expects env vars; see .env.example)
 	go run ./cmd/server
@@ -24,3 +24,12 @@ up: ## Start local Postgres and wait until healthy
 
 down: ## Stop local Postgres and drop its data
 	docker compose down -v
+
+up-app: ## Build and start the full containerized stack (postgres + app)
+	docker compose --profile app up -d --build --wait
+
+seed: ## Fill the database with demo data; idempotent (reads .env via compose)
+	docker compose --profile app run --rm --entrypoint /seed app
+
+docker-build: ## Build the production image locally
+	docker build .

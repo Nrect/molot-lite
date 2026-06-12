@@ -12,3 +12,24 @@ services:
       interval: 2s
       timeout: 2s
       retries: 15
+
+  # Containerized app, opt-in via the "app" profile: plain `make up`
+  # still starts postgres only, `make up-app` brings the full stack.
+  app:
+    profiles: ["app"]
+    build: .
+    env_file: .env
+    environment:
+      # Inside the compose network the DB host is the service name, not
+      # localhost; this overrides whatever .env says for local runs.
+      DATABASE_URL: postgres://molotlite:molotlite@postgres:5432/molotlite?sslmode=disable
+    ports:
+      - "8080:8080"
+    # Room for ordered graceful shutdown: readyz flips to 503, then the
+    # 10s in-flight drain — all before compose escalates to SIGKILL.
+    stop_grace_period: 15s
+    depends_on:
+      postgres:
+        condition: service_healthy
+    # No healthcheck on purpose: the distroless image has no shell or
+    # curl to probe with. Poll /readyz from the outside instead.

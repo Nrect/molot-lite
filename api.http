@@ -1,0 +1,124 @@
+# Executable API walkthrough for the VS Code REST Client extension
+# (humao.rest-client) and JetBrains HTTP Client. Run requests top to
+# bottom: each # @name makes the response referencable, so tokens and
+# ids flow into the next request automatically.
+#
+# Prerequisites: `make up-app` (or `make up` + `make run`).
+# Full endpoint reference: docs/API.md.
+
+@host = http://localhost:8080
+
+### Liveness: always 200 while the process runs
+# @name healthz
+GET {{host}}/healthz
+
+### Readiness: 200 when postgres answers, 503 during shutdown
+# @name readyz
+GET {{host}}/readyz
+
+### Register Alice
+# Repeated runs answer 409 {"slug":"email-taken"} — that is expected.
+# @name registerAlice
+POST {{host}}/api/users
+Content-Type: application/json
+
+{
+  "email": "alice@example.com",
+  "password": "demo-pass-123",
+  "displayName": "Alice"
+}
+
+### Login Alice
+# @name loginAlice
+POST {{host}}/api/users/login
+Content-Type: application/json
+
+{
+  "email": "alice@example.com",
+  "password": "demo-pass-123"
+}
+
+###
+@token = {{loginAlice.response.body.token}}
+
+### Create a lot (Alice is the owner)
+# @name createLot
+POST {{host}}/api/lots
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "title": "Antique blacksmith hammer",
+  "description": "Hand-forged head, oak handle.",
+  "startPriceMinor": 5000,
+  "currency": "USD",
+  "endsAt": "2027-01-01T12:00:00Z"
+}
+
+###
+@lotID = {{createLot.response.body.id}}
+
+### Browse active lots (public, supports ?page=, ?pageSize=, ?q=)
+# @name listLots
+GET {{host}}/api/lots?q=hammer
+
+### One lot by id (public)
+# @name getLot
+GET {{host}}/api/lots/{{lotID}}
+
+### Register Bob — the bidder
+# @name registerBob
+POST {{host}}/api/users
+Content-Type: application/json
+
+{
+  "email": "bob@example.com",
+  "password": "demo-pass-123",
+  "displayName": "Bob"
+}
+
+### Login Bob
+# @name loginBob
+POST {{host}}/api/users/login
+Content-Type: application/json
+
+{
+  "email": "bob@example.com",
+  "password": "demo-pass-123"
+}
+
+###
+@token2 = {{loginBob.response.body.token}}
+
+### Bob bids on Alice's lot
+# Must beat currentPriceMinor, otherwise 409 {"slug":"bid-too-low"}.
+# Alice bidding on her own lot would get 403 {"slug":"owner-cannot-bid"}.
+# @name placeBid
+POST {{host}}/api/lots/{{lotID}}/bids
+Authorization: Bearer {{token2}}
+Content-Type: application/json
+
+{
+  "amountMinor": 6000
+}
+
+### Bid history, newest first (public)
+# @name bidHistory
+GET {{host}}/api/lots/{{lotID}}/bids
+
+### Who am I (Bob's profile)
+# @name me
+GET {{host}}/api/users/me
+Authorization: Bearer {{token2}}
+
+### Edit the lot (owner only, PATCH semantics: omitted fields stay)
+# After placeBid above this answers 409 {"slug":"lot-has-bids"}: a lot
+# with bids is frozen — that is the business rule, not a bug.
+# @name updateLot
+PATCH {{host}}/api/lots/{{lotID}}
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "description": "Hand-forged head, oak handle. Pickup only."
+}

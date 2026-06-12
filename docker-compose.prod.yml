@@ -1,0 +1,52 @@
+# Production stack for a single VPS: postgres + app + Caddy (TLS).
+# Usage: docker compose -f docker-compose.prod.yml up -d --build
+# Walkthrough: docs/DEPLOY.md. Secrets come from .env next to this file.
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: molotlite
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: molotlite
+    # No published port: the database is reachable only from this
+    # compose network. Backups go through `docker compose exec`.
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U molotlite -d molotlite"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  app:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgres://molotlite:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/molotlite?sslmode=disable
+    # Reachable only by Caddy over the compose network; nothing published.
+    expose:
+      - "8080"
+    stop_grace_period: 15s
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - app
+
+volumes:
+  pgdata:
+  caddy_data:
+  caddy_config:

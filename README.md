@@ -10,15 +10,25 @@ MVPs do not rot because the code is simple. They rot because the code has no pla
 
 ```
 cmd/server/            single binary: config, platform, features, HTTP
+cmd/seed/              demo data through the real service functions; idempotent
 internal/platform/     infrastructure only, zero business:
                        env config (fail-fast), slog, slug errors with a single
                        HTTP mapper, JWT auth, pgx + per-feature goose migrations,
-                       chi server with health endpoints and graceful shutdown
+                       chi server with health endpoints, hand-rolled CORS,
+                       per-IP rate limiting and ordered graceful shutdown
+                       (readyz flips to 503 before the drain starts)
 internal/users/        example feature: register (bcrypt), login (JWT), profile
 internal/lots/         example feature: CRUD + pagination + search, owner rules
 internal/bids/         example feature: real concurrency done right —
                        FOR UPDATE bidding, race-tested (N goroutines, one winner)
+internal/notify/       degenerate feature: outbid notifications via Telegram,
+                       best-effort by design (empty creds = log fallback)
+api.http               executable API walkthrough (VS Code REST Client)
+docs/API.md            the endpoint contract: routes, slugs, statuses
+docs/DEPLOY.md         VPS + Caddy (auto-TLS) deployment in 15 minutes
 docs/MVP-RULES.md      the contract: 10 rules + growth triggers
+Dockerfile             multi-stage build into distroless, server + seed binaries
+docker-compose.prod.yml  production stack: postgres + app + caddy
 ```
 
 Each feature is one folder: `handler.go`, `service.go`, `storage.go`, `migrations/`, tests. Plain transaction-script logic — no aggregates, no CQRS, no events. Deleting a feature means deleting its folder and two lines in `main.go`.
@@ -27,13 +37,13 @@ Each feature is one folder: `handler.go`, `service.go`, `storage.go`, `migration
 
 ```bash
 cp .env.example .env
-docker compose up -d          # postgres
-make run                      # migrations run on start
-# register → login → create lot → bid:
-curl -X POST localhost:8080/api/users -d '{"email":"a@b.c","password":"secret123","displayName":"Alice"}'
+make up-app                   # postgres + containerized app, migrations on start
+make seed                     # demo users, lots and bids (idempotent)
 ```
 
-Tests: `make test` (unit, no docker) · `make test-integration` (httptest against real Postgres, including the bid-race test).
+Then open [api.http](api.http) in VS Code (REST Client extension) and walk the chain: register, login, create a lot, bid, watch a 409 when editing a lot that has bids. Prefer running the server on the host? `make up` starts postgres only, `make run` does the rest.
+
+Tests: `make test` (unit, no docker) · `make test-integration` (httptest against real Postgres, including the bid-race test). Deploying: [docs/DEPLOY.md](docs/DEPLOY.md).
 
 ## When to graduate
 

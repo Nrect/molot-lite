@@ -31,6 +31,12 @@ jobs:
       - run: go vet ./...
       - run: go test ./...
 
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build .
+
   integration:
     runs-on: ubuntu-latest
     services:

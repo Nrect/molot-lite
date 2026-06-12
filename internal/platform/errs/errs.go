@@ -17,12 +17,13 @@ import (
 type Kind struct{ kind string }
 
 var (
-	KindBadRequest   = Kind{"bad-request"}
-	KindUnauthorized = Kind{"unauthorized"}
-	KindForbidden    = Kind{"forbidden"}
-	KindNotFound     = Kind{"not-found"}
-	KindConflict     = Kind{"conflict"}
-	KindInternal     = Kind{"internal"}
+	KindBadRequest      = Kind{"bad-request"}
+	KindUnauthorized    = Kind{"unauthorized"}
+	KindForbidden       = Kind{"forbidden"}
+	KindNotFound        = Kind{"not-found"}
+	KindConflict        = Kind{"conflict"}
+	KindTooManyRequests = Kind{"too-many-requests"}
+	KindInternal        = Kind{"internal"}
 )
 
 func (k Kind) String() string {
@@ -74,6 +75,10 @@ func NotFound(slug string) SlugError     { return SlugError{Slug: slug, Kind: Ki
 func Conflict(slug string) SlugError     { return SlugError{Slug: slug, Kind: KindConflict} }
 func Internal(slug string) SlugError     { return SlugError{Slug: slug, Kind: KindInternal} }
 
+func TooManyRequests(slug string) SlugError {
+	return SlugError{Slug: slug, Kind: KindTooManyRequests}
+}
+
 // KindFromError extracts the Kind from the first SlugError in err's
 // chain; errors without one classify as KindInternal.
 func KindFromError(err error) Kind {
@@ -88,7 +93,8 @@ const internalSlug = "internal-server-error"
 
 // Respond maps the first SlugError in err's chain to an HTTP status
 // (BadRequest 400, Unauthorized 401, Forbidden 403, NotFound 404,
-// Conflict 409, Internal 500) with body {"slug": "<slug>"}. Errors
+// Conflict 409, TooManyRequests 429, Internal 500) with body
+// {"slug": "<slug>"}. Errors
 // without a SlugError respond 500 {"slug":"internal-server-error"}.
 // The full error (cause included) is logged here with the request
 // context; only the slug leaves the process.
@@ -133,6 +139,8 @@ func statusFromKind(kind Kind) int {
 		return http.StatusNotFound
 	case KindConflict:
 		return http.StatusConflict
+	case KindTooManyRequests:
+		return http.StatusTooManyRequests
 	default:
 		return http.StatusInternalServerError
 	}

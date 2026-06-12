@@ -23,6 +23,7 @@ func TestRespond(t *testing.T) {
 		{"forbidden", Forbidden("not-owner"), http.StatusForbidden, `{"slug":"not-owner"}`},
 		{"not found", NotFound("lot-not-found"), http.StatusNotFound, `{"slug":"lot-not-found"}`},
 		{"conflict", Conflict("already-paid"), http.StatusConflict, `{"slug":"already-paid"}`},
+		{"too many requests", TooManyRequests("rate-limited"), http.StatusTooManyRequests, `{"slug":"rate-limited"}`},
 		{"internal", Internal("storage-broken"), http.StatusInternalServerError, `{"slug":"storage-broken"}`},
 		{"plain error", errors.New("boom"), http.StatusInternalServerError, `{"slug":"internal-server-error"}`},
 		{"wrapped slug error", fmt.Errorf("get lot: %w", NotFound("lot-not-found")), http.StatusNotFound, `{"slug":"lot-not-found"}`},
@@ -62,6 +63,7 @@ func TestSlugError_UnwrapsCause(t *testing.T) {
 
 func TestKindFromError(t *testing.T) {
 	assert.Equal(t, KindNotFound, KindFromError(NotFound("x")))
+	assert.Equal(t, KindTooManyRequests, KindFromError(TooManyRequests("x")))
 	assert.Equal(t, KindInternal, KindFromError(errors.New("plain")))
 	assert.Equal(t, KindInternal, KindFromError(SlugError{Slug: "no-kind"}))
 }

@@ -1,0 +1,12 @@
+# Deliberately small linter set: each of these catches real bugs, none
+# of them argues about taste. Grow it only when a class of mistakes
+# actually shows up.
+run:
+  timeout: 3m
+
+linters:
+  disable-all: true
+  enable:
+    - govet
+    - staticcheck
+    - errcheck

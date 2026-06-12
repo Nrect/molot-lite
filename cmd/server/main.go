@@ -11,10 +11,16 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/go-chi/chi/v5"
+
+	"molotlite/internal/bids"
+	"molotlite/internal/lots"
+	"molotlite/internal/platform/auth"
 	"molotlite/internal/platform/config"
 	"molotlite/internal/platform/logs"
 	"molotlite/internal/platform/postgres"
 	"molotlite/internal/platform/server"
+	"molotlite/internal/users"
 )
 
 func main() {
@@ -42,13 +48,11 @@ func run() error {
 	}
 	defer pool.Close()
 
-	// Feature migrations: append each feature's set here, e.g.
-	//
-	//	sets = append(sets, postgres.Migrations{
-	//		FS:           users.MigrationsFS(),
-	//		VersionTable: "goose_version_users",
-	//	})
-	var sets []postgres.Migrations
+	sets := []postgres.Migrations{
+		users.Migrations(),
+		lots.Migrations(),
+		bids.Migrations(),
+	}
 	if err := postgres.RunMigrations(ctx, cfg.DatabaseURL, sets); err != nil {
 		return err
 	}
@@ -58,17 +62,32 @@ func run() error {
 		{Name: "postgres", Check: pool.Ping},
 	})
 
-	// Feature routes: construct the feature (storage → service → handler)
-	// and register it here. Protected routes go behind the auth
-	// middleware, public ones (login, signup) on the root router, e.g.
-	//
-	//	usersHandler := users.New(pool, cfg.JWTSecret, cfg.BcryptCost)
-	//	usersHandler.RegisterPublic(r) // POST /api/auth/login, ...
-	//
-	//	r.Route("/api", func(api chi.Router) {
-	//		api.Use(auth.Middleware(cfg.JWTSecret))
-	//		lots.Register(api, lots.NewService(pool))
-	//	})
+	// Features: storage → service → handler, wired with plain calls.
+	// bids depends on lots (PlaceBidTx) and lots on users (UserExists);
+	// both are rule-2 service-function calls, never foreign tables.
+	usersService := users.NewService(pool, cfg.JWTSecret, cfg.BcryptCost)
+	lotsService := lots.NewService(pool, usersService)
+	bidsService := bids.NewService(pool, lotsService)
+
+	usersHandler := users.NewHandler(usersService)
+	lotsHandler := lots.NewHandler(lotsService)
+	bidsHandler := bids.NewHandler(bidsService)
+
+	r.Route("/api", func(api chi.Router) {
+		// Public: signup, login, browsing lots and bid history.
+		api.Group(func(public chi.Router) {
+			usersHandler.RegisterPublic(public)
+			lotsHandler.RegisterPublic(public)
+			bidsHandler.RegisterPublic(public)
+		})
+		// Protected: everything acting on behalf of a user.
+		api.Group(func(protected chi.Router) {
+			protected.Use(auth.Middleware(cfg.JWTSecret))
+			usersHandler.RegisterProtected(protected)
+			lotsHandler.RegisterProtected(protected)
+			bidsHandler.RegisterProtected(protected)
+		})
+	})
 
 	addr := fmt.Sprintf(":%d", cfg.HTTPPort)
 	logger.Info("server starting", slog.String("addr", addr))

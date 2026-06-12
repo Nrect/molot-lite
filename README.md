@@ -45,6 +45,10 @@ Then open [api.http](api.http) in VS Code (REST Client extension) and walk the c
 
 Tests: `make test` (unit, no docker) · `make test-integration` (httptest against real Postgres, including the bid-race test). Deploying: [docs/DEPLOY.md](docs/DEPLOY.md).
 
+## License & attribution
+
+Code is MIT — projects you start from this template are fully yours. The documentation (MVP-RULES, guides) is **CC BY 4.0**: free to use and adapt, but quoting or building upon it in articles, courses or talks **requires crediting the author and linking to this repository**. Details in [LICENSE](LICENSE).
+
 ## When to graduate
 
 The template does not forbid complexity — it postpones it until proven necessary. Growth triggers (a wall of ifs, a second consumer of your data, a multi-step process, money) and the per-feature upgrade recipe live in [MVP-RULES.md](docs/MVP-RULES.md) and in Molot's book ([chapter 19](https://github.com/Nrect/molot/blob/main/docs/book/19-workshop.md)): the boundaries you keep here are the bounded contexts you will need there.
